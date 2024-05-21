@@ -1,0 +1,106 @@
+_schema-version: '3.1'
+ID: incident-management
+version: 1.0.0
+description: "A simple CAP project."
+parameters:
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
+modules:
+  - name: incident-management-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      buildpack: nodejs_buildpack
+      readiness-health-check-type: http
+      readiness-health-check-http-endpoint: /health
+    build-parameters:
+      builder: npm
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: incident-management-db
+      - name: incident-management-auth
+
+  - name: incident-management-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: incident-management-db
+
+  - name: incident-management-destination-content
+  type: com.sap.application.content
+  requires:
+  - name: incident-management-destination-service
+    parameters:
+      content-target: true
+  - name: incident-management_html_repo_host
+    parameters:
+      service-key:
+        name: incident-management_html_repo_host-key
+  - name: incident-management-auth
+    parameters:
+      service-key:
+        name: incident-management-auth-key
+  parameters:
+    content:
+      instance:
+        destinations:
+        - Name: incidents_incident-management_html_repo_host
+          ServiceInstanceName: incident-management-html5-app-host-service
+          ServiceKeyName: incident-management_html_repo_host-key
+          sap.cloud.service: incidents
+        - Authentication: OAuth2UserTokenExchange
+          Name: incidents_incident-management_auth
+          ServiceInstanceName: incident-management-auth
+          ServiceKeyName: incident-management-auth-key
+          sap.cloud.service: incidents
+        existing_destinations_policy: ignore
+  build-parameters:
+    no-source: true
+
+resources:
+  - name: incident-management-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+  - name: incident-management-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: incident-management-${org}-${space}
+        tenant-mode: dedicated
+  - name: incident-management-destination-service
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      HTML5Runtime_enabled: true
+      version: 1.0.0
+    service: destination
+    service-name: incident-management-destination-service
+    service-plan: lite
+  - name: incident-management_html_repo_host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-name: incident-management-html5-app-host-service
+      service-plan: app-host
+  parameters:
+    enable-parallel-deployments: true
+  build-parameters:
+    before-all:
+    - builder: custom
+      commands:
+      - npx cds build --production    
